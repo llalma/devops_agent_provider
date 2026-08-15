@@ -9,8 +9,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/aws/aws-sdk-go-v2/service/devopsagent"
 	
-	"github.com/llalma/devops_agent_provider/internal/client"
 	"github.com/llalma/devops_agent_provider/internal/resources"
 )
 
@@ -81,17 +81,17 @@ func (p *DevOpsAgentProvider) Configure(ctx context.Context, req provider.Config
 		)
 		return
 	}
-
+	
+	// Configure the region
 	region := cfg.Region
 	if !data.Region.IsNull() && !data.Region.IsUnknown() {
 		region = data.Region.ValueString()
 	}
-
-	// Construct the client container
-	client := &client.Client{
-		AwsConfig: cfg,
-		Region:    region,
-	}
+	
+	// Create a devops client
+	client := devopsagent.NewFromConfig(cfg, func(o *devopsagent.Options) {
+		o.Region = region
+	})
 
 	// Pass this client down to your resource implementations
 	resp.ResourceData = client
