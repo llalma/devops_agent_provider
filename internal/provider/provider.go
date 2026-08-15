@@ -4,13 +4,13 @@ import (
 	"context"
 
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/devopsagent"
+	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
-	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/aws/aws-sdk-go-v2/service/devopsagent"
-	
+
 	"github.com/llalma/devops_agent_provider/internal/resources"
 )
 
@@ -81,13 +81,13 @@ func (p *DevOpsAgentProvider) Configure(ctx context.Context, req provider.Config
 		)
 		return
 	}
-	
+
 	// Configure the region
 	region := cfg.Region
 	if !data.Region.IsNull() && !data.Region.IsUnknown() {
 		region = data.Region.ValueString()
 	}
-	
+
 	// Create a devops client
 	client := devopsagent.NewFromConfig(cfg, func(o *devopsagent.Options) {
 		o.Region = region
@@ -106,5 +106,6 @@ func (p *DevOpsAgentProvider) DataSources(ctx context.Context) []func() datasour
 func (p *DevOpsAgentProvider) Resources(ctx context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		func() resource.Resource { return &resources.SkillResource{} },
+		func() resource.Resource { return &resources.InstructionsResource{} },
 	}
 }
