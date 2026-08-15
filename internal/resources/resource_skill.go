@@ -3,10 +3,12 @@ package resources
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/devopsagent"
 	"github.com/aws/aws-sdk-go-v2/service/devopsagent/types"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/aws/aws-sdk-go-v2/service/devopsagent/document"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -33,7 +35,8 @@ type SkillResourceModel struct {
 	Name         tfTypes.String `tfsdk:"name"`
 	Description  tfTypes.String `tfsdk:"description"`
 	AgentTypes 	 tfTypes.Set    `tfsdk:"agent_types"`
-	Content 		 tfTypes.String `tfsdk:"content"`
+	ContentFile tfTypes.String `tfsdk:"content_file"`
+	ContentHash tfTypes.String `tfsdk:"content_hash"`
 	AgentSpaceID tfTypes.String   `tfsdk:"agentspace_id"`
 }
 
@@ -99,9 +102,13 @@ func (r *SkillResource) Schema(ctx context.Context, req resource.SchemaRequest, 
 					),
 				},
 			},
-			"content": schema.StringAttribute{
-				MarkdownDescription: "Content of the skill",
-				Required: true,
+			"content_file": schema.StringAttribute{
+					MarkdownDescription: "Path to the file containing the skill content.",
+					Required:            true,
+			},
+			"content_hash": schema.StringAttribute{
+					MarkdownDescription: "Used to trigger updates when the file changes.",
+					Required:            true,
 			},
 			"agentspace_id": schema.StringAttribute{
 				MarkdownDescription: "The agent_space_id of the DevOps agent space.",
@@ -114,18 +121,31 @@ func (r *SkillResource) Schema(ctx context.Context, req resource.SchemaRequest, 
 	}
 }
 
-func (m *SkillResourceModel) ContentPayload() *types.AssetContentMemberFile {
-    return &types.AssetContentMemberFile{
-        Value: types.AssetFileContent{
-            Path: aws.String("SKILL.md"),
-            Body: &types.AssetFileBodyMemberText{
-                Value: m.Content.ValueString(),
-            },
-        },
+// Create the content payload
+func (m *SkillResourceModel) ContentPayload() (*types.AssetContentMemberFile, diag.Diagnostics) {
+    var diags diag.Diagnostics
+
+    // Read the file from the user's disk
+    contentBytes, err := os.ReadFile(m.ContentFile.ValueString())
+    if err != nil {
+        diags.AddError(
+            "Error Reading Content File",
+            "Could not read the file at path: "+m.ContentFile.ValueString()+"\nError: "+err.Error(),
+        )
+        return nil, diags
     }
+
+		return &types.AssetContentMemberFile{
+        Value: types.AssetFileContent{
+					Path: aws.String("SKILL.md"),
+					Body: &types.AssetFileBodyMemberBytes{
+						Value: contentBytes,
+					},
+				}, 
+    }, diags
 }
 
-// Build SDK Metadata document
+// Create the metadata payload
 func (m *SkillResourceModel) MetadataPayload(ctx context.Context) document.Interface {
 	var agentTypes []string
 	m.AgentTypes.ElementsAs(ctx, &agentTypes, false)
@@ -144,13 +164,21 @@ func (r *SkillResource) Create(ctx context.Context, req resource.CreateRequest, 
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	
+	// Get the file content
+	contentPayload, diags := plan.ContentPayload()
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+			return
+	}
 
 	// Create the input for the SDK
 	input := &devopsagent.CreateAssetInput{
-        AgentSpaceId: aws.String(plan.AgentSpaceID.ValueString()),
-        Content:      plan.ContentPayload(),
-        Metadata:     plan.MetadataPayload(ctx),
-    }
+			AgentSpaceId: aws.String(plan.AgentSpaceID.ValueString()),
+			AssetType: 		aws.String("skill"),
+			Content:      contentPayload,
+			Metadata:     plan.MetadataPayload(ctx),
+	}
 
 	// Execute via SDK
 	output, err := r.client.CreateAsset(ctx, input)
@@ -185,12 +213,19 @@ func (r *SkillResource) Update(ctx context.Context, req resource.UpdateRequest, 
 	if resp.Diagnostics.HasError() {
 			return
 	}
+	
+	// Get the file content
+	contentPayload, diags := plan.ContentPayload()
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+			return
+	}
 
 	// Create the input for the SDK
 	input := &devopsagent.UpdateAssetInput{
 			AgentSpaceId: aws.String(plan.AgentSpaceID.ValueString()),
 			AssetId: aws.String(state.ID.ValueString()),
-			Content:      plan.ContentPayload(),
+			Content:      contentPayload,
 			Metadata:     plan.MetadataPayload(ctx),
 	}
 
@@ -207,4 +242,26 @@ func (r *SkillResource) Update(ctx context.Context, req resource.UpdateRequest, 
 	resp.Diagnostics.Append(diags...)
 }
 
-func (r *SkillResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {}
+func (r *SkillResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var state SkillResourceModel
+
+	// Get the plan and state info
+	diags := req.State.Get(ctx, &state)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+			return
+	}
+
+	// Create the input for the SDK
+	input := &devopsagent.DeleteAssetInput{
+			AgentSpaceId: aws.String(state.AgentSpaceID.ValueString()),
+			AssetId: aws.String(state.ID.ValueString()),
+	}
+
+	// Execute via SDK
+	_, err := r.client.DeleteAsset(ctx, input)
+	if err != nil {
+		resp.Diagnostics.AddError("Error deleting skill", err.Error())
+		return
+	}
+}
