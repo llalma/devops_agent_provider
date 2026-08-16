@@ -20,6 +20,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	tfTypes "github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/llalma/devops_agent_provider/internal/client"
 )
 
 var _ resource.Resource = &InstructionsResource{}
@@ -48,7 +49,7 @@ func (r *InstructionsResource) Configure(ctx context.Context, req resource.Confi
 		return
 	}
 
-	c, ok := req.ProviderData.(*devopsagent.Client)
+	c, ok := req.ProviderData.(*client.Client)
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Resource Configure Type",
@@ -56,7 +57,7 @@ func (r *InstructionsResource) Configure(ctx context.Context, req resource.Confi
 		)
 		return
 	}
-	r.client = c
+	r.client = c.DevopsClient
 }
 
 func (r *InstructionsResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
@@ -139,8 +140,6 @@ func (m *InstructionsResourceModel) ContentPayload() (*types.AssetContentMemberF
 // Create the metadata payload
 func (m *InstructionsResourceModel) MetadataPayload(ctx context.Context) document.Interface {
 	return document.NewLazyDocument(InstructionMetadata{
-		// Name:        m.Name.ValueString(),
-		// Description: m.Description.ValueStringPointer(),
 		AgentType: m.AgentType.ValueString(),
 	})
 }
@@ -191,7 +190,7 @@ func (r *InstructionsResource) Create(ctx context.Context, req resource.CreateRe
 	// Create the input for the SDK
 	input := &devopsagent.CreateAssetInput{
 		AgentSpaceId: aws.String(plan.AgentSpaceID.ValueString()),
-		AssetType:    aws.String("AGENTS.md"),
+		AssetType:    aws.String("agents_md"),
 		Content:      contentPayload,
 		Metadata:     plan.MetadataPayload(ctx),
 	}
@@ -263,11 +262,7 @@ func (r *InstructionsResource) Read(ctx context.Context, req resource.ReadReques
 	}
 
 	// Fetch the content
-	output_file, x := r.client.GetAssetFile(ctx, file_input)
-	if x != nil {
-		resp.Diagnostics.AddError("File errpr", x.Error())
-		return
-	}
+	output_file, _ := r.client.GetAssetFile(ctx, file_input)
 	if output_file.File != nil && output_file.File.Content != nil {
 		var fileBytes []byte
 
@@ -291,17 +286,6 @@ func (r *InstructionsResource) Read(ctx context.Context, req resource.ReadReques
 
 		// 2. Hash and Base64 Encode
 		if len(fileBytes) > 0 {
-			// contentStr := string(fileBytes)
-
-			// // Some reason if editing via the UI it adds in name and description into the file. Causing the hash to differ. If its present only get the actual file content
-			// if strings.HasPrefix(strings.TrimSpace(contentStr), "---") {
-			// 	parts := strings.SplitN(contentStr, "---", 3)
-			// 	if len(parts) == 3 {
-			// 		// Remove residual leading newlines after closing delimiter
-			// 		bodyStr := strings.TrimLeft(parts[2], "\r\n")
-			// 		fileBytes = []byte(bodyStr)
-			// 	}
-			// }
 
 			// 2. Hash the cleaned body to match local disk content
 			hash := sha256.Sum256(fileBytes)

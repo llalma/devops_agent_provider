@@ -5,12 +5,14 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/devopsagent"
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
+	"github.com/llalma/devops_agent_provider/internal/client"
 	"github.com/llalma/devops_agent_provider/internal/resources"
 )
 
@@ -89,12 +91,22 @@ func (p *DevOpsAgentProvider) Configure(ctx context.Context, req provider.Config
 	}
 
 	// Create a devops client
-	client := devopsagent.NewFromConfig(cfg, func(o *devopsagent.Options) {
+	devops_client := devopsagent.NewFromConfig(cfg, func(o *devopsagent.Options) {
+		o.Region = region
+	})
+
+	// Create a secrets client
+	secrets_client := secretsmanager.NewFromConfig(cfg, func(o *secretsmanager.Options) {
 		o.Region = region
 	})
 
 	// Pass this client down to your resource implementations
-	resp.ResourceData = client
+	resp.ResourceData = &client.Client{
+		DevopsClient:  devops_client,
+		SecretsClient: secrets_client,
+		Config:        cfg,
+		Region:        region,
+	}
 }
 
 // DataSources defines the data sources implemented in the provider.
@@ -107,5 +119,6 @@ func (p *DevOpsAgentProvider) Resources(ctx context.Context) []func() resource.R
 	return []func() resource.Resource{
 		func() resource.Resource { return &resources.SkillResource{} },
 		func() resource.Resource { return &resources.InstructionsResource{} },
+		func() resource.Resource { return &resources.WebhookResource{} },
 	}
 }

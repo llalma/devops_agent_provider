@@ -24,6 +24,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	tfTypes "github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/llalma/devops_agent_provider/internal/client"
 )
 
 var _ resource.Resource = &SkillResource{}
@@ -60,7 +61,7 @@ func (r *SkillResource) Configure(ctx context.Context, req resource.ConfigureReq
 		return
 	}
 
-	c, ok := req.ProviderData.(*devopsagent.Client)
+	c, ok := req.ProviderData.(*client.Client)
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Resource Configure Type",
@@ -68,7 +69,7 @@ func (r *SkillResource) Configure(ctx context.Context, req resource.ConfigureReq
 		)
 		return
 	}
-	r.client = c
+	r.client = c.DevopsClient
 }
 
 func (r *SkillResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
